@@ -33,6 +33,31 @@ def post_scene(base, token, device, scene):
     print(json.dumps(response.json(), indent=2))
 
 
+def add_display_options(parser):
+    parser.add_argument(
+        "--orientation",
+        choices=("auto", "portrait", "landscape"),
+        default=None,
+        help="Override Athena's scene-type orientation default",
+    )
+    parser.add_argument(
+        "--density",
+        choices=("comfortable", "compact", "max"),
+        default=None,
+        help="Override Athena's renderer density",
+    )
+
+
+def apply_display_options(scene, args):
+    orientation = getattr(args, "orientation", None)
+    density = getattr(args, "density", None)
+    if orientation:
+        scene["orientation"] = orientation
+    if density:
+        scene["density"] = density
+    return scene
+
+
 def main():
     parser = argparse.ArgumentParser(description="Send a scene to AthenaOS")
     parser.add_argument("--url")
@@ -45,10 +70,12 @@ def main():
         p = sub.add_parser(command)
         p.add_argument("text")
         p.add_argument("--title", default="Athena" if command == "text" else "Notice")
+        add_display_options(p)
 
     md = sub.add_parser("markdown")
     md.add_argument("file")
     md.add_argument("--title", default="Document")
+    add_display_options(md)
 
     image = sub.add_parser("image")
     image.add_argument("file")
@@ -63,20 +90,22 @@ def main():
     base, token = settings(args)
 
     if args.command in ("text", "notice"):
-        post_scene(base, token, args.device, {
+        scene = {
             "type": args.command,
             "title": args.title,
             "text": args.text,
-        })
+        }
+        post_scene(base, token, args.device, apply_display_options(scene, args))
         return
 
     if args.command == "markdown":
         text = Path(args.file).read_text(encoding="utf-8")
-        post_scene(base, token, args.device, {
+        scene = {
             "type": "markdown",
             "title": args.title,
             "text": text,
-        })
+        }
+        post_scene(base, token, args.device, apply_display_options(scene, args))
         return
 
     if args.command == "scene":
