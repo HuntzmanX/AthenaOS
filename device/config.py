@@ -4,10 +4,10 @@ VERSION = "0.1.0"
 
 # Newer Pico 2 W Inky Frame 7.3" units use the Spectra 6 panel.
 # Set to "legacy7" for the older seven-colour 7.3" panel.
-DISPLAY_KIND = "spectra7"  # "spectra7" or "legacy7"
+DISPLAY_KIND = "legacy7"  # "spectra7" or "legacy7"
 
 # How often Athena wakes to check its mailbox.
-POLL_MINUTES = 15
+POLL_MINUTES = 1
 
 # Athena will use /sd/athena automatically when an SD card can be mounted,
 # otherwise it falls back to /athena on the Pico's onboard filesystem.
