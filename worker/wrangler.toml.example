@@ -1,0 +1,16 @@
+name = "athena-mailbox"
+main = "src/index.js"
+compatibility_date = "2026-09-07"
+
+# Create a KV namespace, then paste its ID here.
+[[kv_namespaces]]
+binding = "ATHENA_STATE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Create an R2 bucket named athena-assets (or change this name).
+[[r2_buckets]]
+binding = "ATHENA_ASSETS"
+bucket_name = "athena-assets"
+
+# Store the shared secret with Wrangler rather than putting it in this file:
+#   npx wrangler secret put ATHENA_TOKEN
