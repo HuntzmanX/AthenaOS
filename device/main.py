@@ -27,7 +27,26 @@ def _cached_asset_path(scene):
     return None
 
 
+def _apply_render_meta(scene, meta):
+    if not meta:
+        return
+    scene[config.LOCAL_PAGE_KEY] = int(meta.get("page", 0))
+    scene[config.LOCAL_PAGE_COUNT_KEY] = int(meta.get("page_count", 1))
+    scene[config.LOCAL_ORIENTATION_KEY] = str(meta.get("orientation", "landscape"))
+    scene[config.LOCAL_DENSITY_KEY] = str(meta.get("density", "compact"))
+
+
+def _reset_local_state(scene):
+    scene = dict(scene)
+    scene[config.LOCAL_PAGE_KEY] = 0
+    scene.pop(config.LOCAL_PAGE_COUNT_KEY, None)
+    scene.pop(config.LOCAL_ORIENTATION_KEY, None)
+    scene.pop(config.LOCAL_DENSITY_KEY, None)
+    return scene
+
+
 def _render_and_commit(scene):
+    scene = _reset_local_state(scene)
     scene_type = str(scene.get("type", "text")).lower()
     temp_asset = None
 
@@ -41,7 +60,7 @@ def _render_and_commit(scene):
         networking.download_asset(asset, temp_asset)
 
     try:
-        render_scene(graphics, scene, temp_asset)
+        meta = render_scene(graphics, scene, temp_asset)
     except Exception:
         if temp_asset:
             storage.remove(config.IMAGE_TEMP_FILE)
@@ -51,14 +70,68 @@ def _render_and_commit(scene):
     if temp_asset:
         storage.promote(config.IMAGE_TEMP_FILE, config.IMAGE_FILE)
 
+    _apply_render_meta(scene, meta)
     storage.save_json(config.SCENE_FILE, scene)
 
 
 def _render_cached(scene):
-    render_scene(graphics, scene, _cached_asset_path(scene))
+    meta = render_scene(graphics, scene, _cached_asset_path(scene))
+    _apply_render_meta(scene, meta)
+    storage.save_json(config.SCENE_FILE, scene)
 
 
-def run_once(force_render=False):
+def _page_count(scene):
+    try:
+        return max(1, int(scene.get(config.LOCAL_PAGE_COUNT_KEY, 1)))
+    except Exception:
+        return 1
+
+
+def _page_number(scene):
+    try:
+        return max(0, int(scene.get(config.LOCAL_PAGE_KEY, 0)))
+    except Exception:
+        return 0
+
+
+def _turn_page(scene, delta):
+    count = _page_count(scene)
+    if count <= 1:
+        print("Scene has one page")
+        return False
+
+    current = min(_page_number(scene), count - 1)
+    target = current + int(delta)
+    if target < 0:
+        target = 0
+    if target >= count:
+        target = count - 1
+
+    if target == current:
+        print("Already at page", current + 1, "of", count)
+        return False
+
+    scene[config.LOCAL_PAGE_KEY] = target
+    print("Turning to page", target + 1, "of", count)
+    _render_cached(scene)
+    return True
+
+
+def _button_action():
+    """A=previous page, E=next page, C=manual redraw."""
+    try:
+        if inky_frame.button_a.raw():
+            return "prev"
+        if inky_frame.button_e.raw():
+            return "next"
+        if inky_frame.button_c.raw():
+            return "redraw"
+    except Exception as exc:
+        print("Could not read wake button:", exc)
+    return None
+
+
+def run_once(button_action=None):
     cached = storage.load_json(config.SCENE_FILE)
     remote = None
 
@@ -85,20 +158,32 @@ def run_once(force_render=False):
                 return
 
         print("Scene unchanged:", remote_revision)
-        if force_render and cached:
-            try:
-                _render_cached(cached)
-            except Exception as exc:
-                print("Forced redraw failed:", exc)
-        return
 
     if cached:
-        print("Using cached scene:", _revision(cached))
-        if force_render:
+        if button_action == "prev":
             try:
+                _turn_page(cached, -1)
+            except Exception as exc:
+                print("Previous page failed:", exc)
+            return
+
+        if button_action == "next":
+            try:
+                _turn_page(cached, 1)
+            except Exception as exc:
+                print("Next page failed:", exc)
+            return
+
+        if button_action == "redraw":
+            try:
+                print("Manual redraw")
                 _render_cached(cached)
             except Exception as exc:
-                print("Cached redraw failed:", exc)
+                print("Manual redraw failed:", exc)
+            return
+
+        if not remote:
+            print("Using cached scene:", _revision(cached))
         return
 
     # First ever boot with no network: put something deliberate on the panel once,
@@ -109,15 +194,18 @@ def run_once(force_render=False):
         print("Bootstrap render failed:", exc)
 
 
-# A button wake is useful as a manual redraw/test trigger.
 try:
-    force = inky_frame.woken_by_button()
+    woke_by_button = inky_frame.woken_by_button()
 except Exception:
-    force = False
+    woke_by_button = False
+
+action = _button_action() if woke_by_button else None
+if action:
+    print("Button action:", action)
 
 while True:
-    run_once(force_render=force)
-    force = False
+    run_once(button_action=action)
+    action = None
     gc.collect()
 
     print("Sleeping for", config.POLL_MINUTES, "minutes")
