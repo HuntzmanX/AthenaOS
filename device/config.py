@@ -1,13 +1,13 @@
 # AthenaOS device configuration
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 # Newer Pico 2 W Inky Frame 7.3" units use the Spectra 6 panel.
 # Athena's current hardware is the older seven-colour 7.3" panel.
 DISPLAY_KIND = "legacy7"  # "spectra7" or "legacy7"
 
-# How often Athena wakes to check its mailbox.
-# Keep this at 1 while testing; 15 is a sensible deployed default.
+# How often Athena wakes to check its mailbox automatically.
+# Any non-page-turn button can still wake Athena for an immediate mailbox check.
 POLL_MINUTES = 60
 
 # Portrait document rendering is software-mapped because PicoGraphics only
