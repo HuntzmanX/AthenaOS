@@ -120,19 +120,74 @@ def _turn_page(scene, delta):
 def _button_action():
     """A=previous page, E=next page, C=manual redraw."""
     try:
-        if inky_frame.button_a.raw():
+        # read() is deliberately used rather than raw(): it gives us the normal
+        # Inky Frame debounce behaviour and also identifies the wake button.
+        if inky_frame.button_a.read():
             return "prev"
-        if inky_frame.button_e.raw():
+        if inky_frame.button_e.read():
             return "next"
-        if inky_frame.button_c.raw():
+        if inky_frame.button_c.read():
             return "redraw"
     except Exception as exc:
-        print("Could not read wake button:", exc)
+        print("Could not read button:", exc)
     return None
+
+
+def _any_nav_button_pressed():
+    try:
+        return (
+            inky_frame.button_a.raw()
+            or inky_frame.button_c.raw()
+            or inky_frame.button_e.raw()
+        )
+    except Exception:
+        return False
+
+
+def _wait_for_button_release():
+    # Prevent one long press from turning several painfully slow e-ink pages.
+    while _any_nav_button_pressed():
+        time.sleep(0.05)
+    time.sleep(0.08)
+
+
+def _handle_local_button(cached, action):
+    if not cached or not action:
+        return False
+
+    if action == "prev":
+        try:
+            _turn_page(cached, -1)
+        except Exception as exc:
+            print("Previous page failed:", exc)
+        return True
+
+    if action == "next":
+        try:
+            _turn_page(cached, 1)
+        except Exception as exc:
+            print("Next page failed:", exc)
+        return True
+
+    if action == "redraw":
+        try:
+            print("Manual redraw")
+            _render_cached(cached)
+        except Exception as exc:
+            print("Manual redraw failed:", exc)
+        return True
+
+    return False
 
 
 def run_once(button_action=None):
     cached = storage.load_json(config.SCENE_FILE)
+
+    # Button navigation is intentionally local-first. A page turn never needs
+    # Wi-Fi or a mailbox round-trip; this also makes battery wake-by-button fast.
+    if _handle_local_button(cached, button_action):
+        return
+
     remote = None
 
     try:
@@ -160,28 +215,6 @@ def run_once(button_action=None):
         print("Scene unchanged:", remote_revision)
 
     if cached:
-        if button_action == "prev":
-            try:
-                _turn_page(cached, -1)
-            except Exception as exc:
-                print("Previous page failed:", exc)
-            return
-
-        if button_action == "next":
-            try:
-                _turn_page(cached, 1)
-            except Exception as exc:
-                print("Next page failed:", exc)
-            return
-
-        if button_action == "redraw":
-            try:
-                print("Manual redraw")
-                _render_cached(cached)
-            except Exception as exc:
-                print("Manual redraw failed:", exc)
-            return
-
         if not remote:
             print("Using cached scene:", _revision(cached))
         return
@@ -194,6 +227,31 @@ def run_once(button_action=None):
         print("Bootstrap render failed:", exc)
 
 
+def _poll_buttons_until_timeout(seconds):
+    """USB-powered fallback: stay responsive instead of blocking in sleep()."""
+    try:
+        deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
+        while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+            action = _button_action()
+            if action:
+                print("Button action:", action)
+                run_once(button_action=action)
+                _wait_for_button_release()
+                gc.collect()
+            time.sleep(0.05)
+    except AttributeError:
+        # Very old MicroPython fallback.
+        end = time.time() + seconds
+        while time.time() < end:
+            action = _button_action()
+            if action:
+                print("Button action:", action)
+                run_once(button_action=action)
+                _wait_for_button_release()
+                gc.collect()
+            time.sleep(0.05)
+
+
 try:
     woke_by_button = inky_frame.woken_by_button()
 except Exception:
@@ -201,7 +259,7 @@ except Exception:
 
 action = _button_action() if woke_by_button else None
 if action:
-    print("Button action:", action)
+    print("Wake button action:", action)
 
 while True:
     run_once(button_action=action)
@@ -211,10 +269,11 @@ while True:
     print("Sleeping for", config.POLL_MINUTES, "minutes")
 
     # On battery this schedules the external RTC and cuts power to the Pico.
-    # When USB power prevents that shutdown, the fallback sleep stops a tight loop.
+    # With USB attached the Pico remains powered, so sleep_for() returns and we
+    # actively poll A/C/E during the fallback interval instead of going deaf.
     try:
         inky_frame.sleep_for(config.POLL_MINUTES)
     except Exception as exc:
         print("RTC sleep unavailable:", exc)
 
-    time.sleep(config.POLL_MINUTES * 60)
+    _poll_buttons_until_timeout(config.POLL_MINUTES * 60)
