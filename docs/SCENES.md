@@ -23,7 +23,7 @@ AthenaOS v0.2 adds two optional display hints to every non-image scene:
 - `compact` is the normal AthenaOS v0.2 setting.
 - `max` uses the smallest margins and tightest spacing while retaining scale-2 body text.
 
-Long text, Markdown, agendas, and task lists paginate locally. Athena stores the current page in its cached scene; this local state is not written back to the mailbox. Button **A** moves to the previous page and button **E** to the next page. Button **C** redraws the current page for testing.
+Long text, Markdown, agendas, and task lists paginate locally. Athena stores the current page in its cached scene; this local state is not written back to the mailbox. On battery, button **A** wakes Athena and moves to the previous page; button **C** wakes Athena and moves to the next page. Page turns are handled from the cached scene before any Wi-Fi/mailbox work.
 
 ## Text
 
