@@ -117,7 +117,7 @@ def _turn_page(scene, delta):
 
 
 def _wake_action():
-    """Use the Inky power/wake cycle as the UI: A=previous, C=next."""
+    """Use the Inky power/wake cycle as the UI: A=previous, B=next."""
     try:
         if not inky_frame.woken_by_button():
             return None
@@ -158,8 +158,8 @@ def _handle_local_button(cached, action):
 def run_once(button_action=None):
     cached = storage.load_json(config.SCENE_FILE)
 
-    # Page turns are local-first. A button wake never needs Wi-Fi or a mailbox
-    # round-trip; it simply redraws another page from the cached scene.
+    # Page turns are local-first. A/B button wakes never need Wi-Fi or a mailbox
+    # round-trip; they simply redraw another page from the cached scene.
     if _handle_local_button(cached, button_action):
         return
 
