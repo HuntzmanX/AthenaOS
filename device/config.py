@@ -8,7 +8,7 @@ DISPLAY_KIND = "legacy7"  # "spectra7" or "legacy7"
 
 # How often Athena wakes to check its mailbox.
 # Keep this at 1 while testing; 15 is a sensible deployed default.
-POLL_MINUTES = 1
+POLL_MINUTES = 15
 
 # Portrait document rendering is software-mapped because PicoGraphics only
 # documents constructor rotation for SPI LCDs, not Inky Frame.

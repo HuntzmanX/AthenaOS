@@ -126,7 +126,7 @@ def _wake_action():
         # these reads can identify which front button brought the board to life.
         if inky_frame.button_a.read():
             return "prev"
-        if inky_frame.button_c.read():
+        if inky_frame.button_b.read():
             return "next"
     except Exception as exc:
         print("Could not read wake button:", exc)
