@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Small Athena mailbox sender for desktop testing before Tasker is wired up."""
+"""Athena mailbox sender for desktop testing and v0.3 share-endpoint checks."""
 
 import argparse
 import json
+import mimetypes
 import os
 from pathlib import Path
 
@@ -21,6 +22,11 @@ def auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def print_response(response):
+    response.raise_for_status()
+    print(json.dumps(response.json(), indent=2))
+
+
 def post_scene(base, token, device, scene):
     response = requests.post(
         f"{base}/scene",
@@ -29,8 +35,7 @@ def post_scene(base, token, device, scene):
         json=scene,
         timeout=30,
     )
-    response.raise_for_status()
-    print(json.dumps(response.json(), indent=2))
+    print_response(response)
 
 
 def add_display_options(parser):
@@ -58,8 +63,17 @@ def apply_display_options(scene, args):
     return scene
 
 
+def share_params(args):
+    params = {"device": args.device}
+    for name in ("title", "type", "orientation", "density"):
+        value = getattr(args, name, None)
+        if value:
+            params[name] = value
+    return params
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Send a scene to AthenaOS")
+    parser = argparse.ArgumentParser(description="Send content to AthenaOS")
     parser.add_argument("--url")
     parser.add_argument("--token")
     parser.add_argument("--device", default="athena")
@@ -83,6 +97,18 @@ def main():
 
     structured = sub.add_parser("scene")
     structured.add_argument("file", help="JSON file containing any supported scene")
+
+    share_text = sub.add_parser("share-text", help="Exercise the v0.3 /share text path")
+    share_text.add_argument("text")
+    share_text.add_argument("--title", default="Shared to Athena")
+    share_text.add_argument("--type", choices=("text", "notice", "markdown"), default="text")
+    add_display_options(share_text)
+
+    share_file = sub.add_parser("share-file", help="Exercise the v0.3 /share file path")
+    share_file.add_argument("file")
+    share_file.add_argument("--title", default="")
+    share_file.add_argument("--type", choices=("text", "notice", "markdown"), default=None)
+    add_display_options(share_file)
 
     sub.add_parser("clear")
 
@@ -123,8 +149,40 @@ def main():
                 data=handle,
                 timeout=60,
             )
-        response.raise_for_status()
-        print(json.dumps(response.json(), indent=2))
+        print_response(response)
+        return
+
+    if args.command == "share-text":
+        response = requests.post(
+            f"{base}/share",
+            params=share_params(args),
+            headers={**auth(token), "Content-Type": "text/plain; charset=utf-8"},
+            data=args.text.encode("utf-8"),
+            timeout=30,
+        )
+        print_response(response)
+        return
+
+    if args.command == "share-file":
+        path = Path(args.file)
+        guessed, _ = mimetypes.guess_type(path.name)
+        content_type = guessed or "application/octet-stream"
+        data = {"title": args.title}
+        for name in ("type", "orientation", "density"):
+            value = getattr(args, name, None)
+            if value:
+                data[name] = value
+
+        with path.open("rb") as handle:
+            response = requests.post(
+                f"{base}/share",
+                params={"device": args.device},
+                headers=auth(token),
+                data=data,
+                files={"file": (path.name, handle, content_type)},
+                timeout=60,
+            )
+        print_response(response)
         return
 
     if args.command == "clear":
@@ -134,8 +192,7 @@ def main():
             headers=auth(token),
             timeout=30,
         )
-        response.raise_for_status()
-        print(json.dumps(response.json(), indent=2))
+        print_response(response)
 
 
 if __name__ == "__main__":
