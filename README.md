@@ -1,15 +1,15 @@
-# AthenaOS v0.2
+# AthenaOS v0.3
 
-AthenaOS turns a Pimoroni Inky Frame 7.3" into a quiet e-ink information and art surface.
+AthenaOS turns a Pimoroni Inky Frame 7.3" into a quiet e-ink information, document and art surface.
 
-Athena is deliberately a **display endpoint**, not another general-purpose computer. Other devices put a scene into a tiny mailbox; Athena wakes, checks the scene revision, renders only when something has changed, caches it, and goes back to sleep. If Wi-Fi or the mailbox is unavailable, the previous e-ink image simply stays on screen.
+Athena is deliberately a **display endpoint**. Other devices put a scene into a small mailbox; Athena wakes, checks the scene revision, renders only when something changed, caches it, and goes back to sleep. If Wi-Fi or the mailbox is unavailable, the previous e-ink image simply stays on screen.
 
 ## Architecture
 
 ```text
 Phone / Tasker / PC / Hermes / Mercury
                  |
-                 | POST scene or image
+                 | POST scene / share / image
                  v
         Cloudflare Worker mailbox
           | KV: current scene
@@ -21,23 +21,72 @@ Phone / Tasker / PC / Hermes / Mercury
         Inky Frame 7.3" / Pico 2 W
 ```
 
-## v0.2: dense renderer
+## v0.3: Send to Athena
 
-v0.2 is built around the legacy seven-colour panel's slow full refresh: **make every refresh worth it**.
+v0.3 adds a universal endpoint for Android/Tasker shares:
+
+```text
+POST /share
+```
+
+It accepts:
+
+- plain shared text -> `text`
+- `.txt` -> `text`
+- `.md` / `.markdown` -> `markdown`
+- `.jpg` / `.jpeg` -> `image`
+- JSON -> any normal Athena scene
+
+Optional share hints are supported:
+
+```text
+type=text|notice|markdown
+orientation=auto|portrait|landscape
+density=comfortable|compact|max
+title=...
+```
+
+See [`docs/TASKER.md`](docs/TASKER.md) for the Android share-target setup.
+
+## Dense renderer from v0.2
+
+The legacy seven-colour panel has a slow full refresh, so AthenaOS is designed around **making every refresh worth it**.
 
 - `text` and `markdown` default to a software-mapped **480x800 portrait page**.
 - `notice`, `agenda`, `tasks`, and `image` remain **800x480 landscape** by default.
-- Scene orientation can be overridden with `orientation: portrait|landscape|auto`.
 - Renderer density can be `comfortable`, `compact`, or `max`.
-- Long text and Markdown are automatically paginated.
-- Long agendas and task lists paginate too.
+- Long text, Markdown, agendas and task lists paginate locally.
 - Compact/max landscape task lists use two columns.
 - Current page is stored locally in Athena's cached scene, not in the mailbox.
-- On battery, **A wakes to the previous page** and **C wakes to the next page**.
 
-Portrait mode does not rely on PicoGraphics display rotation. Pimoroni only documents constructor-level 90-degree rotation for SPI LCDs, so AthenaOS maps a logical portrait canvas onto the Inky framebuffer and uses PicoGraphics' per-text angle support. `PORTRAIT_ROTATION` in `device/config.py` can be changed between `90` and `270` if the physical reading direction should be reversed.
+Portrait mode uses PicoGraphics' per-text rotation rather than display-level rotation. The confirmed hardware orientation is:
+
+```python
+PORTRAIT_ROTATION = 90
+```
 
 See [`docs/SCENES.md`](docs/SCENES.md) for the scene format.
+
+## Wake / page controls
+
+Athena uses the Inky Frame's native sleep/wake model rather than a continuously running UI loop.
+
+```text
+A wake -> previous cached page
+B wake -> next cached page
+other button wake -> immediate mailbox check
+RTC wake -> mailbox check
+```
+
+A/B page turns are handled locally before Wi-Fi, so reading does not need a mailbox round-trip.
+
+`POLL_MINUTES` is currently:
+
+```python
+POLL_MINUTES = 60
+```
+
+After one unit of work Athena calls `inky_frame.sleep_for()` again. On battery this powers down the Pico until the RTC or a front button wakes it.
 
 ## Scene types
 
@@ -48,142 +97,114 @@ See [`docs/SCENES.md`](docs/SCENES.md) for the scene format.
 - `tasks`
 - `image`
 
-## Storage: no SD card required
+## Storage
 
-`device/storage.py` is storage-agnostic.
-
-At boot Athena tries to mount an SD card. If that succeeds it uses:
+No SD card is required. Athena tries SD first and otherwise uses onboard flash:
 
 ```text
-/sd/athena
+/sd/athena   # when SD is available
+/athena      # onboard fallback
 ```
 
-If it fails, Athena uses onboard flash:
-
-```text
-/athena
-```
-
-Athena currently keeps only:
-
-- the current scene JSON, including local pagination state
-- at most one cached JPEG
-- a temporary JPEG while a replacement is downloading
-
-Downloads are streamed in 1 KB chunks rather than loaded into RAM. The temporary image is rendered first; Athena only replaces its cached asset/manifest after the new scene displays successfully.
+It keeps only the current scene JSON, one cached JPEG, and a temporary JPEG while replacing an image. Downloads are streamed in 1 KB chunks rather than loaded into RAM.
 
 ## Display hardware
 
-This Athena is the older seven-colour 7.3" Inky Frame, so the repository defaults to:
+This Athena is the older seven-colour 7.3" Inky Frame:
 
 ```python
 DISPLAY_KIND = "legacy7"
 ```
 
-The newer Spectra build remains supported with:
-
-```python
-DISPLAY_KIND = "spectra7"
-```
+The newer Spectra driver remains available with `spectra7`.
 
 ## Device setup
 
 Use a current Pimoroni Inky Frame MicroPython firmware.
 
-Copy the contents of `device/` to the root of the Inky Frame filesystem, so `main.py`, `config.py`, etc. are at `/`.
-
-Copy:
+Copy the contents of `device/` to the root of the Inky Frame filesystem and create:
 
 ```text
 secrets.example.py -> secrets.py
 ```
 
-and set:
+Configure:
 
-- phone hotspot SSID/password
+- Wi-Fi / phone hotspot SSID and password
 - Worker URL
 - shared Athena token
 
-The shared token should be a long random string and `device/secrets.py` is ignored by Git.
+`device/secrets.py` is ignored by Git.
 
-### Wake behaviour
+## Cloudflare Worker
 
-`POLL_MINUTES` controls how often Athena wakes to check its mailbox. The v0.2 branch keeps it at `1` while testing; `15` is a sensible deployed value.
-
-If the mailbox revision has not changed, **the e-ink panel is not refreshed**.
-
-Athena uses the Inky Frame's own sleep/wake model rather than a continuously running input loop:
-
-- RTC wake / reset / normal boot -> check the mailbox.
-- Button A wake -> render the previous cached page locally.
-- Button C wake -> render the next cached page locally.
-- After doing one unit of work, Athena calls `inky_frame.sleep_for()` again.
-
-On battery, `sleep_for()` schedules the external RTC and cuts power to the Pico until the RTC or a front button wakes it. While connected to USB the Pimoroni helper cannot power the board down, so it emulates the timed wait internally; button-wake navigation is therefore intended to be tested/deployed on battery power.
-
-## Cloudflare Worker mailbox
-
-`worker/src/index.js` expects two bindings:
+`worker/src/index.js` expects:
 
 - `ATHENA_STATE` - KV namespace
 - `ATHENA_ASSETS` - R2 bucket
+- `ATHENA_TOKEN` - Worker secret
 
-The API is:
+API:
 
 ```text
 GET  /current
 POST /scene
 POST /image
+POST /share
 POST /clear
 GET  /assets/<key>
 ```
 
-Phone/desktop writers authenticate with `Authorization: Bearer <token>`. Athena's small GET client uses the same token as a query parameter.
+Phone/desktop writers use `Authorization: Bearer <token>`. Athena's tiny GET client uses the same token as a query parameter.
+
+Deploy from the Worker directory:
+
+```powershell
+cd worker
+npx wrangler deploy
+cd ..
+```
 
 ## Desktop testing
 
-Install Requests:
+Install Requests and set `ATHENA_URL` / `ATHENA_TOKEN` as before.
 
-```bash
-pip install requests
+Normal scene commands still work:
+
+```powershell
+python tools\send.py text "Hello Athena" --title "Proof of concept"
+python tools\send.py markdown README.md --title "AthenaOS" --density compact
+python tools\send.py notice "DINNER AT 7" --title "Oi"
+python tools\send.py image athena.jpg
+python tools\send.py clear
 ```
 
-Set the mailbox details, then use `tools/send.py`:
+v0.3 adds share-endpoint smoke tests:
 
-```bash
-python tools/send.py text "Hello Athena" --title "Proof of concept"
-python tools/send.py text "A long note..." --title "Reading" --density max
-python tools/send.py text "Wide note" --orientation landscape
-python tools/send.py markdown README.md --title "AthenaOS" --density compact
-python tools/send.py notice "DINNER AT 7" --title "Oi"
-python tools/send.py image athena.jpg
-python tools/send.py clear
+```powershell
+python tools\send.py share-text "Hello from the v0.3 share endpoint" --title "Send to Athena"
+python tools\send.py share-file README.md --title "README via share"
 ```
 
-Structured agenda/task scenes can be sent from JSON:
+Structured agenda/task scenes can still be sent with:
 
-```bash
-python tools/send.py scene scene.json
+```powershell
+python tools\send.py scene scene.json
 ```
 
-## Image limitation
+## JPEG limitation
 
-The Pico-side renderer uses Pimoroni's `jpegdec` directly. Images should currently be **baseline/non-progressive JPEGs at 800x480**.
+The Pico-side renderer still expects a display-ready **baseline/non-progressive 800x480 JPEG**.
 
-A later AthenaOS version can move arbitrary phone-image resizing/cropping to Tasker or the mailbox so the device continues to receive a simple display-ready asset.
+v0.3 solves the Android transport path, not arbitrary-photo normalisation. Tasker has built-in image load/resize/crop/save actions, so phone-side preprocessing can be added later without changing `/share` or Athena's device protocol.
 
-## v0.2 hardware test checklist
+## v0.3 proof checklist
 
-1. Send a long text scene and confirm it renders portrait.
-2. If portrait reads in the wrong physical direction, change `PORTRAIT_ROTATION` from `90` to `270`.
-3. Confirm the page marker shows more than one page.
-4. Disconnect USB and run Athena from battery power.
-5. Press C to wake Athena and render the next cached page; A returns to the previous page.
-6. Confirm a page turn does not connect to Wi-Fi before rendering the cached page.
-7. Let the RTC wake Athena and confirm it checks the mailbox normally.
-8. Send `README.md` as Markdown and verify headings, bullets, rules and pagination.
-9. Send a dense task list and verify the two-column landscape layout.
-10. Confirm an unchanged mailbox revision still causes no display refresh.
-11. Return `POLL_MINUTES` to a sensible deployed interval after testing.
-
-Once the dense renderer is solid on hardware, the next layer is Tasker's **Send to Athena** Android share flow.
+1. Deploy the updated Worker.
+2. Confirm `GET /` reports mailbox version `0.3.0` and includes `POST /share`.
+3. Send `share-text` from the desktop helper and verify `/current` changes.
+4. Send `share-file README.md` and verify Athena receives a Markdown scene.
+5. Build the Tasker Received Share profile from `docs/TASKER.md`.
+6. Share selected Android text to **Send to Athena**.
+7. Wake Athena with a non-A/B button and confirm it renders the new scene.
+8. Confirm A/B still page locally without Wi-Fi first.
