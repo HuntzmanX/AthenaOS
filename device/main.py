@@ -122,8 +122,8 @@ def _wake_action():
         if not inky_frame.woken_by_button():
             return None
 
-        # The Inky helper keeps enough wake/current-state information for these
-        # reads to identify the button that brought the board back to life.
+        # Inky's wake helpers include the latched/current wake-button state, so
+        # these reads can identify which front button brought the board to life.
         if inky_frame.button_a.read():
             return "prev"
         if inky_frame.button_c.read():
