@@ -33,7 +33,7 @@ v0.2 is built around the legacy seven-colour panel's slow full refresh: **make e
 - Long agendas and task lists paginate too.
 - Compact/max landscape task lists use two columns.
 - Current page is stored locally in Athena's cached scene, not in the mailbox.
-- **A = previous page**, **E = next page**, **C = manual redraw**.
+- On battery, **A wakes to the previous page** and **C wakes to the next page**.
 
 Portrait mode does not rely on PicoGraphics display rotation. Pimoroni only documents constructor-level 90-degree rotation for SPI LCDs, so AthenaOS maps a logical portrait canvas onto the Inky framebuffer and uses PicoGraphics' per-text angle support. `PORTRAIT_ROTATION` in `device/config.py` can be changed between `90` and `270` if the physical reading direction should be reversed.
 
@@ -112,7 +112,14 @@ The shared token should be a long random string and `device/secrets.py` is ignor
 
 If the mailbox revision has not changed, **the e-ink panel is not refreshed**.
 
-On battery, `inky_frame.sleep_for()` schedules the external RTC wake and cuts power to the Pico. Button wakes allow local document navigation without changing the mailbox scene.
+Athena uses the Inky Frame's own sleep/wake model rather than a continuously running input loop:
+
+- RTC wake / reset / normal boot -> check the mailbox.
+- Button A wake -> render the previous cached page locally.
+- Button C wake -> render the next cached page locally.
+- After doing one unit of work, Athena calls `inky_frame.sleep_for()` again.
+
+On battery, `sleep_for()` schedules the external RTC and cuts power to the Pico until the RTC or a front button wakes it. While connected to USB the Pimoroni helper cannot power the board down, so it emulates the timed wait internally; button-wake navigation is therefore intended to be tested/deployed on battery power.
 
 ## Cloudflare Worker mailbox
 
@@ -170,10 +177,13 @@ A later AthenaOS version can move arbitrary phone-image resizing/cropping to Tas
 1. Send a long text scene and confirm it renders portrait.
 2. If portrait reads in the wrong physical direction, change `PORTRAIT_ROTATION` from `90` to `270`.
 3. Confirm the page marker shows more than one page.
-4. On battery, press E to wake Athena and render the next cached page; A returns to the previous page.
-5. Send `README.md` as Markdown and verify headings, bullets, rules and pagination.
-6. Send a dense task list and verify the two-column landscape layout.
-7. Confirm an unchanged mailbox revision still causes no display refresh.
-8. Return `POLL_MINUTES` to a sensible deployed interval after testing.
+4. Disconnect USB and run Athena from battery power.
+5. Press C to wake Athena and render the next cached page; A returns to the previous page.
+6. Confirm a page turn does not connect to Wi-Fi before rendering the cached page.
+7. Let the RTC wake Athena and confirm it checks the mailbox normally.
+8. Send `README.md` as Markdown and verify headings, bullets, rules and pagination.
+9. Send a dense task list and verify the two-column landscape layout.
+10. Confirm an unchanged mailbox revision still causes no display refresh.
+11. Return `POLL_MINUTES` to a sensible deployed interval after testing.
 
 Once the dense renderer is solid on hardware, the next layer is Tasker's **Send to Athena** Android share flow.
