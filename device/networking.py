@@ -62,6 +62,77 @@ def _sleep_ms(milliseconds):
         time.sleep(milliseconds / 1000)
 
 
+def _network_config(wlan):
+    try:
+        return wlan.ifconfig()
+    except Exception:
+        return None
+
+
+def _has_ipv4(config_values):
+    if not config_values:
+        return False
+    try:
+        address = str(config_values[0])
+    except Exception:
+        return False
+    return bool(address and address != "0.0.0.0")
+
+
+def _wifi_status(wlan):
+    try:
+        return wlan.status()
+    except Exception:
+        return None
+
+
+def _wait_for_ipv4(wlan, attempts=20, delay_ms=500):
+    """Wait for DHCP to assign a usable IPv4 address."""
+    last_config = None
+
+    for attempt in range(1, attempts + 1):
+        last_config = _network_config(wlan)
+        if _has_ipv4(last_config):
+            print("Network config:", last_config)
+            return last_config
+
+        print(
+            "Waiting for DHCP...",
+            attempt,
+            "/",
+            attempts,
+            "status",
+            _wifi_status(wlan),
+        )
+        _sleep_ms(delay_ms)
+
+    raise RuntimeError(
+        "DHCP lease not acquired; last config=" + str(last_config)
+    )
+
+
+def _reconnect_station(wlan):
+    """Cycle the station interface once if association completed without DHCP."""
+    print("Cycling Wi-Fi interface for DHCP retry")
+
+    try:
+        wlan.disconnect()
+    except Exception:
+        pass
+
+    _sleep_ms(250)
+
+    try:
+        wlan.active(False)
+        _sleep_ms(500)
+        wlan.active(True)
+        _sleep_ms(250)
+    except Exception as exc:
+        print("Wi-Fi interface cycle warning:", exc)
+
+    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+
+
 def _wait_for_dns(attempts=8, delay_ms=500):
     """Wait briefly for DNS to become usable after Wi-Fi association/DHCP."""
     host, port = _api_host_port()
@@ -93,19 +164,28 @@ def _wait_for_dns(attempts=8, delay_ms=500):
 def connect():
     print("Connecting to", WIFI_SSID)
     ih.network_connect(WIFI_SSID, WIFI_PASSWORD)
-    print("Wi-Fi connected")
+    print("Wi-Fi associated")
 
-    # Older Pico W / CYW43 builds can report link-up before DHCP/DNS is fully
-    # usable. Print the leased network details when available, then explicitly
-    # wait for the mailbox hostname to resolve before urllib gets involved.
+    # Pimoroni's older helper can report Wi-Fi as connected while DHCP still
+    # shows 0.0.0.0. DNS/HTTP cannot work until the station owns a real address.
     try:
         import network
 
         wlan = network.WLAN(network.STA_IF)
-        print("Network config:", wlan.ifconfig())
-    except Exception as exc:
-        print("Network config unavailable:", exc)
 
+        try:
+            _wait_for_ipv4(wlan, attempts=20, delay_ms=500)
+        except Exception as first_exc:
+            print("DHCP not ready after helper:", first_exc)
+            _reconnect_station(wlan)
+            _wait_for_ipv4(wlan, attempts=40, delay_ms=500)
+
+    except ImportError:
+        # Extremely old/trimmed firmware: keep the previous behaviour and let
+        # the explicit DNS test below provide the useful failure.
+        print("network module unavailable; skipping DHCP diagnostics")
+
+    print("Wi-Fi ready")
     _wait_for_dns()
 
 
