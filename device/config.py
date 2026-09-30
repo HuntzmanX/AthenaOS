@@ -1,6 +1,6 @@
 # AthenaOS device configuration
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 # Newer Pico 2 W Inky Frame 7.3" units use the Spectra 6 panel.
 # Athena's current hardware is the older seven-colour 7.3" panel.
