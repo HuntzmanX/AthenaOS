@@ -233,7 +233,7 @@ v0.3 solves the Android transport path, not arbitrary-photo normalisation. Taske
 
 1. Copy one or more PPF Studio files into `/fonts` on Athena.
 2. Set `FONT_BODY`, `FONT_SMALL`, `FONT_HEADING`, `FONT_TITLE`, and `FONT_MONO` to their filename stems.
-3. In Thonny, run `fonts.available()` and `fonts.diagnose("name")` to confirm the files parse.
+3. In Thonny, run `_fonts.available()` and `_fonts.diagnose("name")` to confirm the files parse.
 4. Send a long text scene and verify proportional wrapping/pagination in portrait.
 5. Send Markdown and verify body/title/heading/mono roles render independently.
 6. Send tasks/agenda and verify the denser custom typography still fits correctly.
