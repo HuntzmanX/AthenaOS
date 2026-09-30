@@ -24,8 +24,8 @@ Fonts are loaded by **name without the `.ppf` suffix**:
 import fonts
 
 book = fonts.load("book-12")       # /fonts/book-12.ppf
-print(fonts.available())
-print(fonts.diagnose("book-12"))
+print(_fonts.available())
+print(_fonts.diagnose("book-12"))
 ```
 
 The loader caches parsed font headers/tables. Glyph bitmap bytes remain on disk and are streamed only while drawing, keeping RAM use small.
@@ -87,7 +87,7 @@ After copying one or more PPF files to `/fonts`, use Thonny:
 import fonts
 
 print(fonts.available())
-print(fonts.diagnose("your-font-name"))
+print(_fonts.diagnose("your-font-name"))
 ```
 
 A successful diagnostic looks roughly like:
