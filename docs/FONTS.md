@@ -21,9 +21,9 @@ Athena also searches:
 Fonts are loaded by **name without the `.ppf` suffix**:
 
 ```python
-import fonts
+import _fonts
 
-book = fonts.load("book-12")       # /fonts/book-12.ppf
+book = _fonts.load("book-12")       # /fonts/book-12.ppf
 print(_fonts.available())
 print(_fonts.diagnose("book-12"))
 ```
