@@ -28,9 +28,9 @@ v0.4 adds filesystem-loaded PPF fonts using the same binary format produced by *
 Fonts are loaded by filename stem:
 
 ```python
-import fonts
+import _fonts
 
-font = fonts.load("book-12")  # resolves book-12.ppf
+font = _fonts.load("book-12")  # resolves book-12.ppf
 ```
 
 Athena searches `/fonts`, `/athena/fonts`, `/sd/fonts`, and `/sd/athena/fonts`.
