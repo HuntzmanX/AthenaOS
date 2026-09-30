@@ -42,7 +42,17 @@ def _with_auth(url):
 def fetch_current():
     url = _with_auth(_base_url("/current"))
     print("Checking Athena mailbox")
-    response = urequest.urlopen(url)
+
+    try:
+        response = urequest.urlopen(url)
+    except OSError as exc:
+        if not _is_dns_error(exc):
+            raise
+        # Resolver state can disappear on some older Pico W stacks even after
+        # a successful first lookup. Give it one bounded recovery pass.
+        print("Mailbox DNS lookup failed, retrying:", exc)
+        _wait_for_dns()
+        response = urequest.urlopen(url)
     try:
         scene = ujson.load(response)
     finally:
