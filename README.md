@@ -1,4 +1,4 @@
-# AthenaOS v0.3
+# AthenaOS v0.4
 
 AthenaOS turns a Pimoroni Inky Frame 7.3" into a quiet e-ink information, document and art surface.
 
@@ -21,6 +21,37 @@ Phone / Tasker / PC / Hermes / Mercury
         Inky Frame 7.3" / Pico 2 W
 ```
 
+## v0.4: PPF typography
+
+v0.4 adds filesystem-loaded PPF fonts using the same binary format produced by **PPF Studio** and used by Mercury.
+
+Fonts are loaded by filename stem:
+
+```python
+import _fonts
+
+font = _fonts.load("book-12")  # resolves book-12.ppf
+```
+
+Athena searches `/fonts`, `/athena/fonts`, `/sd/fonts`, and `/sd/athena/fonts`.
+
+The renderer has five semantic roles configured in `device/config.py`:
+
+```python
+FONT_BODY = "body"
+FONT_SMALL = "small"
+FONT_HEADING = "heading"
+FONT_TITLE = "title"
+FONT_MONO = "mono"
+```
+
+Point those names at any PPF files you already have. PPF's stored per-glyph widths are used directly for **proportional layout and wrapping**; deliberately monospace PPFs remain monospace.
+
+PPF bitmap data is streamed from disk while drawing rather than keeping every glyph bitmap in RAM. Portrait and landscape use the same logical renderer, and pagination now uses the actual custom font dimensions.
+
+Missing or invalid role fonts fall back individually to the previous PicoGraphics `bitmap8` path, so font experiments cannot make Athena unable to display a scene.
+
+See [`docs/FONTS.md`](docs/FONTS.md) for setup and diagnostics.
 ## v0.3: Send to Athena
 
 v0.3 adds a universal endpoint for Android/Tasker shares:
@@ -198,13 +229,15 @@ The Pico-side renderer still expects a display-ready **baseline/non-progressive 
 
 v0.3 solves the Android transport path, not arbitrary-photo normalisation. Tasker has built-in image load/resize/crop/save actions, so phone-side preprocessing can be added later without changing `/share` or Athena's device protocol.
 
-## v0.3 proof checklist
+## v0.4 proof checklist
 
-1. Deploy the updated Worker.
-2. Confirm `GET /` reports mailbox version `0.3.0` and includes `POST /share`.
-3. Send `share-text` from the desktop helper and verify `/current` changes.
-4. Send `share-file README.md` and verify Athena receives a Markdown scene.
-5. Build the Tasker Received Share profile from `docs/TASKER.md`.
-6. Share selected Android text to **Send to Athena**.
-7. Wake Athena with a non-A/B button and confirm it renders the new scene.
-8. Confirm A/B still page locally without Wi-Fi first.
+1. Copy one or more PPF Studio files into `/fonts` on Athena.
+2. Set `FONT_BODY`, `FONT_SMALL`, `FONT_HEADING`, `FONT_TITLE`, and `FONT_MONO` to their filename stems.
+3. In Thonny, run `_fonts.available()` and `_fonts.diagnose("name")` to confirm the files parse.
+4. Send a long text scene and verify proportional wrapping/pagination in portrait.
+5. Send Markdown and verify body/title/heading/mono roles render independently.
+6. Send tasks/agenda and verify the denser custom typography still fits correctly.
+7. Temporarily name one role incorrectly and confirm that role falls back to built-in `bitmap8` without breaking the page.
+8. Confirm A/B local page turns and the 60-minute sleep/wake behavior are unchanged.
+
+The v0.3 Worker/share path is unchanged by v0.4.

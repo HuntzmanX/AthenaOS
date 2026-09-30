@@ -1,6 +1,6 @@
 # AthenaOS device configuration
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 # Newer Pico 2 W Inky Frame 7.3" units use the Spectra 6 panel.
 # Athena's current hardware is the older seven-colour 7.3" panel.
@@ -14,6 +14,22 @@ POLL_MINUTES = 60
 # documents constructor rotation for SPI LCDs, not Inky Frame.
 # 90 = clockwise, 270 = counter-clockwise.
 PORTRAIT_ROTATION = 90
+
+# PPF typography. Values are filename stems: "book-12" resolves book-12.ppf.
+# /fonts is first for simple device copies; Athena-local and SD paths follow.
+FONT_DIRS = (
+    "/fonts",
+    "/athena/fonts",
+    "/sd/fonts",
+    "/sd/athena/fonts",
+)
+
+# Semantic font roles. Missing/invalid PPFs fall back to PicoGraphics bitmap8.
+FONT_BODY = "body"
+FONT_SMALL = "small"
+FONT_HEADING = "heading"
+FONT_TITLE = "title"
+FONT_MONO = "mono"
 
 # Dense-renderer defaults. Scenes can override with:
 #   orientation: "portrait" | "landscape" | "auto"
