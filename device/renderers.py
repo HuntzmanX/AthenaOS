@@ -1,7 +1,7 @@
 import gc
 
 import config
-import fonts as fontlib
+import _fonts as fontlib
 from picographics import PicoGraphics
 
 
