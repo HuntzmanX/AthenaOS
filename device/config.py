@@ -15,6 +15,22 @@ POLL_MINUTES = 60
 # 90 = clockwise, 270 = counter-clockwise.
 PORTRAIT_ROTATION = 90
 
+# PPF typography. Values are filename stems: "book-12" resolves book-12.ppf.
+# /fonts is first for simple device copies; Athena-local and SD paths follow.
+FONT_DIRS = (
+    "/fonts",
+    "/athena/fonts",
+    "/sd/fonts",
+    "/sd/athena/fonts",
+)
+
+# Semantic font roles. Missing/invalid PPFs fall back to PicoGraphics bitmap8.
+FONT_BODY = "body"
+FONT_SMALL = "small"
+FONT_HEADING = "heading"
+FONT_TITLE = "title"
+FONT_MONO = "mono"
+
 # Dense-renderer defaults. Scenes can override with:
 #   orientation: "portrait" | "landscape" | "auto"
 #   density: "comfortable" | "compact" | "max"
