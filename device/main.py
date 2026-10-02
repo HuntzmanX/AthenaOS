@@ -58,6 +58,11 @@ def _render_and_commit(scene):
         temp_asset = storage.path(config.IMAGE_TEMP_FILE)
         networking.download_asset(asset, temp_asset)
 
+        # JPEGDEC needs a large contiguous working block. Once the asset is
+        # safely on flash Athena no longer needs Wi-Fi/TLS for this refresh.
+        networking.release()
+        gc.collect()
+
     try:
         meta = render_scene(graphics, scene, temp_asset)
     except Exception:
