@@ -57,6 +57,7 @@ DOWNLOAD_CHUNK_BYTES = 1024
 
 # Local cache names.
 SCENE_FILE = "scene.json"
+PENDING_SCENE_FILE = "scene.pending.json"
 IMAGE_FILE = "scene.jpg"
 IMAGE_TEMP_FILE = "scene.next.jpg"
 
