@@ -273,3 +273,27 @@ def download_asset(asset, destination, max_bytes=None):
     gc.collect()
     print("Downloaded", total, "bytes")
     return total
+
+
+def release():
+    """Shut networking down and reclaim as much heap as possible before JPEG decode."""
+    try:
+        import network
+
+        wlan = network.WLAN(network.STA_IF)
+        try:
+            wlan.disconnect()
+        except Exception:
+            pass
+        try:
+            wlan.active(False)
+        except Exception:
+            pass
+    except Exception as exc:
+        print("Wi-Fi release warning:", exc)
+
+    gc.collect()
+    try:
+        print("RAM after Wi-Fi release:", gc.mem_free())
+    except Exception:
+        pass
