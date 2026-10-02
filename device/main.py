@@ -2,7 +2,7 @@ import gc
 
 import config
 import inky_frame
-from renderers import create_graphics, render_scene
+from display import create_graphics
 from storage import Storage
 
 
@@ -43,10 +43,61 @@ def _reset_local_state(scene):
     return scene
 
 
+def _render_image_fresh(asset_path):
+    """Decode a staged JPEG with the smallest practical set of modules loaded."""
+    gc.collect()
+    try:
+        print("Fresh-boot RAM before jpegdec:", gc.mem_free())
+    except Exception:
+        pass
+
+    import jpegdec
+
+    gc.collect()
+    try:
+        print("Fresh-boot RAM after jpegdec import:", gc.mem_free())
+    except Exception:
+        pass
+
+    jpeg = jpegdec.JPEG(graphics)
+    try:
+        print("RAM after JPEG decoder:", gc.mem_free())
+    except Exception:
+        pass
+
+    graphics.set_pen(1)
+    graphics.clear()
+    jpeg.open_file(asset_path)
+
+    result = jpeg.decode()
+    if result is False:
+        raise RuntimeError("JPEG decoder returned false")
+
+    graphics.update()
+    gc.collect()
+
+    return {
+        "page": 0,
+        "page_count": 1,
+        "orientation": "landscape",
+        "density": "comfortable",
+    }
+
+
+def _render_scene(scene, asset_path=None):
+    """Load the full typography renderer only when a normal scene needs it."""
+    from renderers import render_scene
+    return render_scene(graphics, scene, asset_path)
+
+
 def _render_pending_image():
-    """Render a staged JPEG before the networking stack is ever imported."""
+    """Render a staged JPEG before networking or full renderers are imported."""
+    if not storage.exists(config.PENDING_SCENE_FILE):
+        return False
+
     pending = storage.load_json(config.PENDING_SCENE_FILE)
     if not pending:
+        storage.remove(config.PENDING_SCENE_FILE)
         return False
 
     if str(pending.get("type", "")).lower() != "image":
@@ -68,11 +119,7 @@ def _render_pending_image():
         pass
 
     try:
-        meta = render_scene(
-            graphics,
-            pending,
-            storage.path(config.IMAGE_TEMP_FILE),
-        )
+        meta = _render_image_fresh(storage.path(config.IMAGE_TEMP_FILE))
     except Exception as exc:
         # Do not create a reboot loop if a malformed/unsupported JPEG still
         # cannot be decoded. Keep the old committed scene/display intact.
@@ -130,13 +177,13 @@ def _render_and_commit(scene):
         _stage_image_and_reboot(scene)
         return
 
-    meta = render_scene(graphics, scene)
+    meta = _render_scene(scene)
     _apply_render_meta(scene, meta)
     storage.save_json(config.SCENE_FILE, scene)
 
 
 def _render_cached(scene):
-    meta = render_scene(graphics, scene, _cached_asset_path(scene))
+    meta = _render_scene(scene, _cached_asset_path(scene))
     _apply_render_meta(scene, meta)
     storage.save_json(config.SCENE_FILE, scene)
 
