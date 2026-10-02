@@ -1,4 +1,4 @@
-# AthenaOS v0.4
+# AthenaOS v0.4.1
 
 AthenaOS turns a Pimoroni Inky Frame 7.3" into a quiet e-ink information, document and art surface.
 
@@ -223,6 +223,17 @@ Structured agenda/task scenes can still be sent with:
 python tools\send.py scene scene.json
 ```
 
+## Low-memory image rendering
+
+On the legacy Inky Frame, JPEG decoding needs a large contiguous allocation and Wi-Fi/TLS can fragment the MicroPython heap. Athena therefore renders newly received images in two stages:
+
+```text
+wake -> connect -> download JPEG -> save pending scene -> machine.reset()
+     -> fresh boot -> decode JPEG before Wi-Fi/full renderer imports
+     -> update display -> commit scene -> sleep
+```
+
+The pending marker is `scene.pending.json` and the staged JPEG is `scene.next.jpg`. The existing committed scene/image are not replaced until the fresh-boot render succeeds. If decoding fails, the pending marker is cleared to avoid a reboot loop and the previous e-ink image remains intact.
 ## JPEG limitation
 
 The Pico-side renderer still expects a display-ready **baseline/non-progressive 800x480 JPEG**.
