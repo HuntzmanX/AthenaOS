@@ -776,18 +776,44 @@ def render_tasks(graphics, scene):
     return _meta(page, page_count, orientation, density)
 
 
+def _print_free_ram(label):
+    try:
+        print(label, gc.mem_free())
+    except Exception:
+        pass
+
+
 def render_image(graphics, asset_path):
     if not asset_path:
         raise ValueError("Image scene has no local asset path")
 
+    # PPF glyph tables are tiny, but image rendering does not need them at all.
+    # Drop any cached font objects before asking JPEGDEC for its large contiguous
+    # working allocation.
+    try:
+        fontlib.clear_cache()
+    except Exception:
+        pass
+
+    gc.collect()
+    _print_free_ram("RAM before jpegdec import:")
+
     import jpegdec
 
     gc.collect()
+    _print_free_ram("RAM before JPEG decoder:")
+
     jpeg = jpegdec.JPEG(graphics)
+    _print_free_ram("RAM after JPEG decoder:")
+
     graphics.set_pen(WHITE)
     graphics.clear()
+
     jpeg.open_file(asset_path)
+    _print_free_ram("RAM after JPEG open:")
+
     jpeg.decode()
+    _print_free_ram("RAM after JPEG decode:")
     gc.collect()
 
 
