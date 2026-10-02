@@ -2,8 +2,7 @@ import gc
 
 import config
 import inky_frame
-import networking
-from renderers import create_graphics, render_scene
+from display import create_graphics
 from storage import Storage
 
 
@@ -44,42 +43,147 @@ def _reset_local_state(scene):
     return scene
 
 
+def _render_image_fresh(asset_path):
+    """Decode a staged JPEG with the smallest practical set of modules loaded."""
+    gc.collect()
+    try:
+        print("Fresh-boot RAM before jpegdec:", gc.mem_free())
+    except Exception:
+        pass
+
+    import jpegdec
+
+    gc.collect()
+    try:
+        print("Fresh-boot RAM after jpegdec import:", gc.mem_free())
+    except Exception:
+        pass
+
+    jpeg = jpegdec.JPEG(graphics)
+    try:
+        print("RAM after JPEG decoder:", gc.mem_free())
+    except Exception:
+        pass
+
+    graphics.set_pen(1)
+    graphics.clear()
+    jpeg.open_file(asset_path)
+
+    result = jpeg.decode()
+    if result is False:
+        raise RuntimeError("JPEG decoder returned false")
+
+    graphics.update()
+    gc.collect()
+
+    return {
+        "page": 0,
+        "page_count": 1,
+        "orientation": "landscape",
+        "density": "comfortable",
+    }
+
+
+def _render_scene(scene, asset_path=None):
+    """Load the full typography renderer only when a normal scene needs it."""
+    from renderers import render_scene
+    return render_scene(graphics, scene, asset_path)
+
+
+def _render_pending_image():
+    """Render a staged JPEG before networking or full renderers are imported."""
+    if not storage.exists(config.PENDING_SCENE_FILE):
+        return False
+
+    pending = storage.load_json(config.PENDING_SCENE_FILE)
+    if not pending:
+        storage.remove(config.PENDING_SCENE_FILE)
+        return False
+
+    if str(pending.get("type", "")).lower() != "image":
+        print("Discarding invalid pending scene")
+        storage.remove(config.PENDING_SCENE_FILE)
+        storage.remove(config.IMAGE_TEMP_FILE)
+        return False
+
+    if not storage.exists(config.IMAGE_TEMP_FILE):
+        print("Pending image marker has no JPEG; discarding marker")
+        storage.remove(config.PENDING_SCENE_FILE)
+        return False
+
+    print("Pending image found - rendering before Wi-Fi")
+    gc.collect()
+    try:
+        print("Fresh-boot RAM before image:", gc.mem_free())
+    except Exception:
+        pass
+
+    try:
+        meta = _render_image_fresh(storage.path(config.IMAGE_TEMP_FILE))
+    except Exception as exc:
+        # Do not create a reboot loop if a malformed/unsupported JPEG still
+        # cannot be decoded. Keep the old committed scene/display intact.
+        print("Pending image render failed:", exc)
+        storage.remove(config.PENDING_SCENE_FILE)
+        gc.collect()
+        return False
+
+    storage.promote(config.IMAGE_TEMP_FILE, config.IMAGE_FILE)
+    _apply_render_meta(pending, meta)
+    storage.save_json(config.SCENE_FILE, pending)
+    storage.remove(config.PENDING_SCENE_FILE)
+
+    print("Pending image committed:", _revision(pending))
+    gc.collect()
+    return True
+
+
+def _stage_image_and_reboot(scene):
+    """Download an image, persist its scene, then reboot into a clean render pass."""
+    asset = scene.get("asset")
+    if not asset:
+        raise ValueError("Image scene is missing 'asset'")
+
+    # Import networking only in the network phase. A reboot after this function
+    # means the JPEG render phase starts without importing Wi-Fi/HTTP/TLS at all.
+    import networking
+    import machine
+
+    storage.remove(config.IMAGE_TEMP_FILE)
+    storage.remove(config.PENDING_SCENE_FILE)
+
+    temp_asset = storage.path(config.IMAGE_TEMP_FILE)
+    networking.download_asset(asset, temp_asset)
+
+    pending = _reset_local_state(scene)
+    storage.save_json(config.PENDING_SCENE_FILE, pending)
+
+    print("Image staged; rebooting for clean JPEG render")
+    gc.collect()
+
+    try:
+        machine.reset()
+    except Exception:
+        # If a firmware exposes reset differently, do not fall through and try
+        # to decode in the fragmented networking heap.
+        raise RuntimeError("Image staged but machine.reset() failed")
+
+
 def _render_and_commit(scene):
     scene = _reset_local_state(scene)
     scene_type = str(scene.get("type", "text")).lower()
-    temp_asset = None
 
     if scene_type == "image":
-        asset = scene.get("asset")
-        if not asset:
-            raise ValueError("Image scene is missing 'asset'")
+        _stage_image_and_reboot(scene)
+        return
 
-        storage.remove(config.IMAGE_TEMP_FILE)
-        temp_asset = storage.path(config.IMAGE_TEMP_FILE)
-        networking.download_asset(asset, temp_asset)
-
-        # JPEGDEC needs a large contiguous working block. Once the asset is
-        # safely on flash Athena no longer needs Wi-Fi/TLS for this refresh.
-        networking.release()
-        gc.collect()
-
-    try:
-        meta = render_scene(graphics, scene, temp_asset)
-    except Exception:
-        if temp_asset:
-            storage.remove(config.IMAGE_TEMP_FILE)
-        raise
-
-    # Only replace the cached asset/manifest after the display update succeeded.
-    if temp_asset:
-        storage.promote(config.IMAGE_TEMP_FILE, config.IMAGE_FILE)
-
+    meta = _render_scene(scene)
     _apply_render_meta(scene, meta)
     storage.save_json(config.SCENE_FILE, scene)
 
 
 def _render_cached(scene):
-    meta = render_scene(graphics, scene, _cached_asset_path(scene))
+    meta = _render_scene(scene, _cached_asset_path(scene))
     _apply_render_meta(scene, meta)
     storage.save_json(config.SCENE_FILE, scene)
 
@@ -127,8 +231,6 @@ def _wake_action():
         if not inky_frame.woken_by_button():
             return None
 
-        # Inky's wake helpers include the latched/current wake-button state, so
-        # these reads can identify which front button brought the board to life.
         if inky_frame.button_a.read():
             return "prev"
         if inky_frame.button_b.read():
@@ -168,6 +270,10 @@ def run_once(button_action=None):
     if _handle_local_button(cached, button_action):
         return
 
+    # Networking is deliberately lazy-imported. This is important for staged
+    # images: their reboot render runs before this module is loaded at all.
+    import networking
+
     remote = None
 
     try:
@@ -205,6 +311,14 @@ def run_once(button_action=None):
         _render_and_commit(dict(config.BOOTSTRAP_SCENE))
     except Exception as exc:
         print("Bootstrap render failed:", exc)
+
+
+# Staged images get first refusal on every boot, before networking is imported.
+# If one succeeds, Athena has completed the requested refresh and can go straight
+# back to sleep without reconnecting just to discover the same revision.
+if _render_pending_image():
+    print("Sleeping for", config.POLL_MINUTES, "minutes")
+    inky_frame.sleep_for(config.POLL_MINUTES)
 
 
 # Athena is intentionally event-driven rather than a continuously running UI.
