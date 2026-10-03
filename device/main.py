@@ -43,8 +43,75 @@ def _reset_local_state(scene):
     return scene
 
 
+def _jpeg_info(path):
+    """Read JPEG SOF metadata without allocating the image or decoder."""
+    with open(path, "rb") as handle:
+        if handle.read(2) != b"\xff\xd8":
+            return {"type": "not-jpeg"}
+
+        while True:
+            byte = handle.read(1)
+            if not byte:
+                return {"type": "unknown"}
+
+            if byte != b"\xff":
+                continue
+
+            marker = handle.read(1)
+            while marker == b"\xff":
+                marker = handle.read(1)
+            if not marker:
+                return {"type": "unknown"}
+
+            code = marker[0]
+
+            # Standalone markers have no segment length.
+            if code in (0x01, 0xD8, 0xD9) or 0xD0 <= code <= 0xD7:
+                continue
+
+            length_raw = handle.read(2)
+            if len(length_raw) != 2:
+                return {"type": "unknown"}
+
+            length = (length_raw[0] << 8) | length_raw[1]
+            if length < 2:
+                return {"type": "unknown"}
+
+            # SOF0 = baseline DCT, SOF2 = progressive DCT.
+            if code in (0xC0, 0xC2):
+                data = handle.read(min(length - 2, 6))
+                if len(data) < 6:
+                    return {"type": "unknown"}
+
+                height = (data[1] << 8) | data[2]
+                width = (data[3] << 8) | data[4]
+                components = data[5]
+
+                return {
+                    "type": "baseline" if code == 0xC0 else "progressive",
+                    "width": width,
+                    "height": height,
+                    "components": components,
+                }
+
+            # Stop at Start Of Scan if no useful SOF marker was found.
+            if code == 0xDA:
+                return {"type": "unknown"}
+
+            handle.seek(length - 2, 1)
+
+
 def _render_image_fresh(asset_path):
     """Decode a staged JPEG with the smallest practical set of modules loaded."""
+    info = _jpeg_info(asset_path)
+    print("JPEG info:", info)
+
+    if info.get("type") == "progressive":
+        raise ValueError(
+            "Progressive JPEG is too memory-heavy for Athena; "
+            "send a baseline/non-progressive JPEG"
+        )
+
     gc.collect()
     try:
         print("Fresh-boot RAM before jpegdec:", gc.mem_free())
